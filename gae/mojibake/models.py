@@ -1,7 +1,7 @@
 import datetime
 from flask import url_for
 #from mojibake import db
-from google.appengine.ext import db
+from google.appengine.ext import ndb
 
 ROLE_USER = 0
 ROLE_STAFF = 1
@@ -18,13 +18,13 @@ COMMENT_AWAITING = False
 COMMENT_APPROVED = True
 
 
-class User(db.Model):
-    username = db.StringProperty(required=True)  # , unique=True
-    email = db.StringProperty(required=True)
-    password = db.StringProperty(required=True)
-    role = db.IntegerProperty(default=ROLE_USER)
-    status = db.IntegerProperty(default=STATUS_ACTIVE)
-    last_seen = db.DateTimeProperty()
+class User(ndb.Model):
+    username = ndb.StringProperty(required=True)  # , unique=True
+    email = ndb.StringProperty(required=True)
+    password = ndb.StringProperty(required=True)
+    role = ndb.IntegerProperty(default=ROLE_USER)
+    status = ndb.IntegerProperty(default=STATUS_ACTIVE)
+    last_seen = ndb.DateTimeProperty()
     #posts = db.ListField(db.ReferenceField('Post', dbref=True))
 
     def is_authenticated(self):
@@ -37,7 +37,7 @@ class User(db.Model):
         return False
 
     def get_id(self):
-        return unicode(self.key().id())
+        return unicode(self.key.id())
 
     #def __unicode__(self):
     #    return self.username
@@ -52,18 +52,19 @@ class User(db.Model):
     #}
 
 
-class Post(db.Model):
-    created_at = db.DateTimeProperty(auto_now_add=True, required=True)
+class Post(ndb.Model):
+    created_at = ndb.DateTimeProperty(auto_now_add=True, required=True)
     #overreplication of data? But I want to query uniques values of these....
     #created_year = db.IntegerProperty(default=datetime.datetime.now().year, required=True)
     #created_month = db.IntegerProperty(default=datetime.datetime.now().month, required=True)
     #created_day = db.IntegerProperty(default=datetime.datetime.now().day, required=True)
-    title = db.StringProperty(required=True)
-    slug = db.StringProperty(required=True)
-    body = db.StringProperty(required=True)
-    visible = db.BooleanProperty(default=POST_VISIBLE)
+    title = ndb.StringProperty(required=True)
+    slug = ndb.StringProperty(required=True)
+    body = ndb.StringProperty(required=True)
+    visible = ndb.BooleanProperty(default=POST_VISIBLE)
     #author = db.ReferenceField(User, dbref=True, reverse_delete_rule=db.CASCADE)
-    author = db.ReferenceProperty(User)
+    #author = ndb.ReferenceProperty(User)
+    author = ndb.KeyProperty(kind=User)
     #edited at?
     #tags = db.ListField(db.EmbeddedDocumentField('Tag'))
     #tags = db.ListField(db.StringProperty())  # tags later - many to many http://blog.notdot.net/2010/10/Modeling-relationships-in-App-Engine
@@ -71,6 +72,15 @@ class Post(db.Model):
 
     def get_absolute_url(self):
         return url_for('post', kwargs={'slug': self.slug})
+
+    def _pre_put_hook(self):
+        #update the AppInfo table with the Post Count
+        pass
+
+    @classmethod
+    def _post_delete_hook(cls, key, future):
+        #same as above
+        pass
 
     # def get_visible_comments(self):
     #     visible_comments = []
@@ -106,16 +116,25 @@ class Post(db.Model):
     # }
 
 
-class Comment(db.Model):
-    created_at = db.DateTimeProperty(auto_now_add=True, required=True)
-    body = db.StringProperty(verbose_name='Comment', required=True)
-    author = db.StringProperty(verbose_name='Name', required=True)
-    email = db.StringProperty(verbose_name='E-mail', required=True)
-    approved = db.BooleanProperty(default=COMMENT_AWAITING)
-    post = db.ReferenceProperty(Post)
+class Comment(ndb.Model):
+    created_at = ndb.DateTimeProperty(auto_now_add=True, required=True)
+    body = ndb.StringProperty(verbose_name='Comment', required=True)
+    author = ndb.StringProperty(verbose_name='Name', required=True)
+    email = ndb.StringProperty(verbose_name='E-mail', required=True)
+    approved = ndb.BooleanProperty(default=COMMENT_AWAITING)
+    #post = ndb.ReferenceProperty(Post)
+    post = ndb.KeyProperty(kind=Post)
 
     def __repr__(self):
         return '<Comment %r>' % (self.author)
+
+    @classmethod
+    def query_author(cls, ):
+        return cls.query(ancestor=post)
+
+
+class AppInfo(ndb.Model):
+    post_count = ndb.IntegerProperty()
 
 #class Tag(db.Document):
     #maybe change this to a Document not EmbeddedDocument?

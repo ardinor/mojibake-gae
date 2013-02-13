@@ -1,12 +1,15 @@
 from flask import render_template, g, redirect, url_for, \
-    flash, request, jsonify, abort
+    flash, request, jsonify, abort, session
 #from flask import session
 from flask_login import login_required, login_user, \
     logout_user, current_user
 from passlib.hash import pbkdf2_sha256
 #from datetime import datetime
-from google.appengine.api import users
+#from google.appengine.api import users
 from math import ceil
+
+from google.appengine.ext import ndb
+from google.appengine.datastore.datastore_query import Cursor
 
 from mojibake import app, lm
 from models import User, Post, Comment
@@ -55,37 +58,50 @@ class Pagination(object):
 @app.route("/index", defaults={'page': 1})
 @app.route("/<int:page>")
 def index(page):
-    #displays posts even if they are not visible at the moment...
-    #posts = Post.objects(visible=True).paginate(page=page, per_page=POSTS_PER_PAGE)
-    post_count = Post.all(keys_only=True).count()
-    #page_max = math.ceil(post_count / POSTS_PER_PAGE) + 1
-    if page > 1:
-        page_offset = (page - 1) * POSTS_PER_PAGE
-        posts = Post.all().filter("visible =", True).order("-created_at").run(offset=page_offset, limit=POSTS_PER_PAGE)
+    #post_count = Post.query().fetch().count(100)  # limit=0
+    p = Post.query(Post.visible == True).order(-Post.created_at)
+    #if page > 1:
+    #    page_offset = (page - 1) * POSTS_PER_PAGE
+    #    posts = Post.query().filter("visible =", True).order("-created_at").run(offset=page_offset, limit=POSTS_PER_PAGE)
+    #else:
+        #posts = Post.query().filter("visible =", True).order("-created_at").run(limit=POSTS_PER_PAGE)
+    #    posts = Post.query(Post.visible == True).order(-Post.created_at).fetch(limit=POSTS_PER_PAGE)
+    #if not posts and page != 1:
+    #    abort(404)
+    #pagination = Pagination(page, POSTS_PER_PAGE, post_count)
+
+    if page == 1:
+        posts, cursor, more = p.fetch_page(POSTS_PER_PAGE)
+        session['cursor'] = cursor.urlsafe()
     else:
-        posts = Post.all().filter("visible =", True).order("-created_at").run(limit=POSTS_PER_PAGE)
-    if not posts.get() and page != 1:
-        abort(404)
-    pagination = Pagination(page, POSTS_PER_PAGE, post_count)
+        if 'cursor' in session:
+            cursor = Cursor(urlsafe=session['cursor'])
+            posts, cursor, more = p.fetch_page(POSTS_PER_PAGE, start_cursor=cursor)
+            session['cursor'] = cursor
+
+
     #recent = Post.objects(visible=True).order_by('-created_at')[:5]
     return render_template("posts/list.html",
         posts=posts,
-        pagination=pagination
+        more=more,
+        pagination=''
         )  # recent=recent
 
 
 @app.route('/post/<slug>', methods=['GET', 'POST'])
 def get_post(slug):
-    #post = Post.objects.get_or_404(slug=slug)
-    post = Post.all().filter('slug =', slug).get()
+    #post = Post.all().filter('slug =', slug).get()
+    post = Post.query(Post.slug == slug).get()
+    if not post:
+        abort(404)
     form = CommentForm()
     if form.validate_on_submit():
         comment = Comment(body=form.body.data,
             author=form.author.data,
             email=form.email.data,
+            post=post
             )
-        post.comments.append(comment)
-        post.save()
+        comment.put()
         flash('Comment posted and awaiting administrator approval.', 'success')
         return redirect(url_for('get_post', slug=slug))
     return render_template('posts/detail.html',
@@ -98,7 +114,10 @@ def get_post(slug):
 @app.route('/post/<slug>/edit', methods=['GET', 'POST'])
 @login_required
 def edit_post(slug):
-    post = Post.objects.get_or_404(slug=slug)
+    #post = Post.all().filter('slug =', slug).get()
+    post = Post.query(Post.slug == slug).get()
+    if not post:
+        abort(404)
     form = PostForm(obj=post)
     if form.validate_on_submit():
         tags_list = []
@@ -109,7 +128,7 @@ def edit_post(slug):
         post.body = form.body.data
         post.visible = form.visible.data
         post.tags = tags_list
-        post.save()
+        post.put()
         flash('Post updated!', 'success')
         return redirect(url_for('get_post', slug=slug))
     return render_template('posts/edit.html',
@@ -120,16 +139,19 @@ def edit_post(slug):
 @app.route('/post/<slug>/delete', methods=['GET'])
 @login_required
 def delete_post(slug):
-    post = Post.objects.get_or_404(slug=slug)
+    #post = Post.all().filter('slug =', slug).get()
+    post = Post.query(Post.slug == slug).get()
+    if not post:
+        abort(404)
     user = g.user
     #check if it's the users post or if the user has admin?
-    if User.objects(id=user.id)[0] == post.author or User.objects(id=user.id)[0].role == ROLE_ADMIN:
+    if User.get_by_id(int(user.key().id())) == post.author or User.get_by_id(int(user.key().id())).role == ROLE_ADMIN:
         post.delete()
         flash('Post deleted!', 'success')
         return redirect(url_for('index'))
     else:
         flash('You do not have permission to delete this post.', 'error')
-        return redirect(url_for('get_post', slug=slug))
+    return redirect(url_for('get_post', slug=slug))
 
 
 @app.route('/post/new', methods=['GET', 'POST'])
@@ -148,6 +170,7 @@ def new_post():
             author=User.get_by_id(int(user.key().id())),
             tags=tags_list)  # tags not right I think
         post.put()
+
         #user.posts.append(post)
         flash('Post created!', 'success')
         return redirect(url_for('get_post', slug=post.slug))
@@ -194,15 +217,23 @@ def panel(page=1):
     awaiting_comments = {}
     post_awaiting_comments = []
     #paginate comments? what if there's 50 comments?
-    #author = User.objects(id=user.id)[0]
-    author = User.get_by_id(int(user.key().id()))
+    #author = User.objects(id=user.id)[0] User.get_by_id(int(id))
+    #author = User.get_by_id(int(user.key.id()))
     #Post.objects
     ##for i in Post.all().filter('author =', author).filter(comments__approved=False):
     ##    post_awaiting_comments = post_awaiting_comments + i.get_comments_awaiting()
     ##    awaiting_comments[i] = post_awaiting_comments
     ##    post_awaiting_comments = []
     #posts = Post.objects(author=author).paginate(page=page, per_page=POSTS_PER_PAGE)
-    posts = Post.all().filter('author =', author).order('-created_at').run(limit=POSTS_PER_PAGE)
+    #posts = Post.all().filter('author =', author).order('-created_at').run(limit=POSTS_PER_PAGE)
+    query = Post.query(Post.author == ndb.Key(User, int(user.key.id()))). \
+        order(-Post.created_at)
+    if page == 1:
+        posts, cursor, more = query.fetch_page(POSTS_PER_PAGE)
+        g.cursor = cursor
+    else:
+        if g.cursor:
+            posts, cursor, more = query.fetch_page(POSTS_PER_PAGE, cursor)
     return render_template('users/panel.html',
         user=user,
         pagination=posts,
@@ -224,7 +255,8 @@ def login():
     form = LoginForm()
     if form.validate_on_submit():
         #logging_in_user = User.objects(username=form.username.data)
-        logging_in_user = User.all().filter('username =', form.username.data).get()
+        #logging_in_user = User.all().filter('username =', form.username.data).get()
+        logging_in_user = User.query(User.username == form.username.data).get()
         if logging_in_user:
             #logging_in_user = logging_in_user[0]
             if pbkdf2_sha256.verify(form.password.data, logging_in_user.password):

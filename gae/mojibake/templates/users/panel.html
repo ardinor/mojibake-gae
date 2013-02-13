@@ -17,7 +17,7 @@
                 {% for comment in values %}
                 <div id="comment-row" class="row-fluid">
                     <div class="span4 offset2">
-                        <span id="comment">{{ comment.created_at.strftime('%H:%M %Y-%m-%d') }} - <strong>{{ comment.author }}</strong> says: {{ comment.body }}</span>
+                        <span id="comment">{{ comment.created_at.strftime('%H:%M %Y-%m-%d') }} - <strong>{{ comment.author.get().username }}</strong> says: {{ comment.body }}</span>
                     </div>
                     <div class="span2">
                         <button class="btn btn-success btn-small" type="button">Approve</button><button class="btn btn-danger btn-small">Delete</button>
@@ -39,7 +39,7 @@
         <div class="span6 offset2">
             <h4><a href="{{ url_for('get_post', slug = post.slug) }}">{{ post.title }}</a></h4>
             <p>
-              {{ post.author.username }} | {{ post.created_at.strftime('%H:%M %Y-%m-%d') }}
+              {{ post.author.get().username }} | {{ post.created_at.strftime('%H:%M %Y-%m-%d') }}
             </p>
             <p>{{ post.body|truncate(100) }}</p>
         </div>
