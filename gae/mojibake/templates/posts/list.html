@@ -1,0 +1,36 @@
+{% from '_macros.html' import render_pagination %}
+
+{% extends "header.html" %}
+
+{% block content %}
+  <div class="row-fluid">
+    <div class="span6 offset3">
+
+  {% for post in posts %}
+
+      <h2><a href="{{ url_for('get_post', slug = post.slug) }}">{{ post.title }}</a></h2>
+      <p>
+        {{ post.author.username }} | {{ post.created_at.strftime('%H:%M %Y-%m-%d') }}
+      </p>
+      <p>{{ post.body|truncate(100) }}</p>
+
+  {% endfor %}
+    </div>
+
+
+    <div class="span3">
+        {% if recent %}
+        <h4>Recent Posts</h4>
+        <ul>
+            {% for item in recent %}
+                <li><a href="{{ url_for('get_post', slug = item.slug) }}">{{ item.title }}</a></li>
+            {% endfor %}
+        </ul>
+        {% endif %}
+    </div>
+  </div>
+  <div class="span6 offset3">
+  {{ render_pagination(pagination=pagination) }}
+  </div>
+{% endblock %}
+

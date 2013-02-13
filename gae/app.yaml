@@ -1,0 +1,33 @@
+application: mojibake-gae
+version: 1
+runtime: python27
+api_version: 1
+threadsafe: true
+
+builtins:
+- appstats: on
+- remote_api: on
+#- datastore_admin: on
+
+admin_console:
+  pages:
+  - name: Appstats
+    url: /_ah/stats/
+
+handlers:
+
+- url: /favicon.ico
+  static_files: static/img/favicon.ico
+  upload: static/img/favicon.ico
+
+- url: /static
+  static_dir: static
+
+- url: /.*
+  script: boot.app
+
+libraries:
+- name: jinja2
+  version: "2.6"
+- name: markupsafe
+  version: "0.15"
